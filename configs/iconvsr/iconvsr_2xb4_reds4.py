@@ -12,7 +12,7 @@ model = dict(
         mid_channels=64,
         num_blocks=30,
         keyframe_stride=5,
-        padding=2,
+        padding=4,
         spynet_pretrained='https://download.openmmlab.com/mmediting/restorers/'
         'basicvsr/spynet_20210409-c6c1bd09.pth',
         edvr_pretrained='https://download.openmmlab.com/mmediting/restorers/'
