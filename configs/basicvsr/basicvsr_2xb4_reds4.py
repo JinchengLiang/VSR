@@ -96,7 +96,7 @@ val_evaluator = dict(
     ])
 
 train_cfg = dict(
-    type='IterBasedTrainLoop', max_iters=300_000, val_interval=5000)
+    type='IterBasedTrainLoop', max_iters=1000, val_interval=50)
 val_cfg = dict(type='MultiValLoop')
 
 # optimizer
@@ -112,7 +112,7 @@ default_hooks = dict(checkpoint=dict(out_dir=save_dir))
 param_scheduler = dict(
     type='CosineRestartLR',
     by_epoch=False,
-    periods=[300000],
+    periods=[1000],
     restart_weights=[1],
     eta_min=1e-7)
 
