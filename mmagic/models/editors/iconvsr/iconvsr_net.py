@@ -1,8 +1,9 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 from logging import WARNING
-
+import os
 import torch
 import torch.nn as nn
+from torch.nn import init
 import torch.nn.functional as F
 from mmcv.cnn import ConvModule
 from mmengine import MMLogger, print_log
@@ -48,7 +49,8 @@ class IconVSRNet(BaseModule):
                  keyframe_stride=5,
                  padding=2,
                  spynet_pretrained=None,
-                 edvr_pretrained=None):
+                 edvr_pretrained=None,
+                 tga_pretrained= 'TGA-without-align-dla.pth'):
 
         super().__init__()
 
@@ -60,10 +62,14 @@ class IconVSRNet(BaseModule):
         self.spynet = SPyNet(pretrained=spynet_pretrained)
 
         # information-refill
-        self.edvr = EDVRFeatureExtractor(
-            num_frames=padding * 2 + 1,
-            center_frame_idx=padding,
-            pretrained=edvr_pretrained)
+        #self.edvr = EDVRFeatureExtractor(
+        #    num_frames=padding * 2 + 1,
+        #    center_frame_idx=padding,
+        #    pretrained=edvr_pretrained)
+
+        self.tga = TGA(scale=4)
+
+
         self.backward_fusion = nn.Conv2d(
             2 * mid_channels, mid_channels, 3, 1, 1, bias=True)
         self.forward_fusion = nn.Conv2d(
@@ -146,12 +152,16 @@ class IconVSRNet(BaseModule):
             lrs = [lrs[:, [4, 3]], lrs, lrs[:, [-4, -5]]]  # padding
         elif self.padding == 3:
             lrs = [lrs[:, [6, 5, 4]], lrs, lrs[:, [-5, -6, -7]]]  # padding
+        elif self.padding == 4:
+            lrs = [lrs[:, [8, 7, 6, 5]], lrs, lrs[:, [ -6, -7, -8, -9]]]  # padding
         lrs = torch.cat(lrs, dim=1)
 
         num_frames = 2 * self.padding + 1
         feats_refill = {}
         for i in keyframe_idx:
-            feats_refill[i] = self.edvr(lrs[:, i:i + num_frames].contiguous())
+            #feats_refill[i] = self.edvr(lrs[:, i:i + num_frames].contiguous())
+            lrs_permuted = lrs[:, i:i + num_frames].permute(0, 2, 1, 3, 4)
+            feats_refill[i] = self.tga(lrs_permuted)
         return feats_refill
 
     def compute_flow(self, lrs):
@@ -389,3 +399,269 @@ class EDVRFeatureExtractor(BaseModule):
             feat = self.fusion(aligned_feat)
 
         return feat
+
+
+class Fusion_head(nn.Module):
+    def __init__(self, nf, ng):
+        super(Fusion_head, self).__init__()
+        pad = (0, 1, 1)
+        self.conv3d_1 = nn.Conv3d(nf, nf, (1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.conv3d_1.apply(initialize_weights)
+        self.bn3d_2 = nn.BatchNorm3d(nf, eps=1e-3, momentum=1e-3)
+        self.conv3d_2 = nn.Conv3d(nf, ng, (3, 3, 3), stride=(1, 1, 1), padding=(1, 1, 1))
+        self.conv3d_2.apply(initialize_weights)
+        self.bn3d_3 = nn.BatchNorm3d(nf + ng, eps=1e-3, momentum=1e-3)
+        self.conv3d_3 = nn.Conv3d(nf + ng, nf + ng, (1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.conv3d_3.apply(initialize_weights)
+        self.bn3d_4 = nn.BatchNorm3d(nf + ng, eps=1e-3, momentum=1e-3)
+        self.conv3d_4 = nn.Conv3d(nf + ng, ng, (3, 3, 3), stride=(1, 1, 1), padding=(1, 1, 1))
+        self.conv3d_4.apply(initialize_weights)
+
+    def forward(self, x):
+        x1 = self.conv3d_1(F.relu(x))
+        x1 = self.conv3d_2(F.relu(self.bn3d_2(x1)))
+        x1 = torch.cat((x, x1), 1)
+        x2 = self.conv3d_3(F.relu(self.bn3d_3(x1)))
+        x2 = self.conv3d_4(F.relu(self.bn3d_4(x2)))
+        x2 = torch.cat((x1, x2), 1)
+        return x2
+
+
+class Fusion_last(nn.Module):
+    def __init__(self, nf, ng):
+        super(Fusion_last, self).__init__()
+        pad = (0, 1, 1)
+        self.bn3d_1 = nn.BatchNorm3d(nf, eps=1e-3, momentum=1e-3)
+        self.conv3d_1 = nn.Conv3d(nf, nf, (1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.conv3d_1.apply(initialize_weights)
+        self.bn3d_2 = nn.BatchNorm3d(nf, eps=1e-3, momentum=1e-3)
+        self.conv3d_2 = nn.Conv3d(nf, ng, (3, 3, 3), stride=(1, 1, 1), padding=(0, 1, 1))
+        self.conv3d_2.apply(initialize_weights)
+        self.bn3d_3 = nn.BatchNorm3d(nf + ng, eps=1e-3, momentum=1e-3)
+        self.conv3d_3 = nn.Conv3d(nf + ng, nf + ng, (1, 1, 1), stride=(1, 1, 1))
+        self.conv3d_3.apply(initialize_weights)
+        self.bn3d_4 = nn.BatchNorm3d(nf + ng, eps=1e-3, momentum=1e-3)
+        self.conv3d_4 = nn.Conv3d(nf + ng, ng, (1, 3, 3), stride=(1, 1, 1), padding=(0, 1, 1))
+        self.conv3d_4.apply(initialize_weights)
+
+    def forward(self, x):
+        x1 = self.conv3d_1(F.relu(self.bn3d_1(x)))
+        x1 = self.conv3d_2(F.relu(self.bn3d_2(x1)))
+        x1 = torch.cat((x[:, :, 1:-1, :, :], x1), 1)
+        x2 = self.conv3d_3(F.relu(self.bn3d_3(x1)))
+        x2 = self.conv3d_4(F.relu(self.bn3d_4(x2)))
+        x2 = torch.cat((x1, x2), 1)
+        return x2
+
+
+class head(nn.Module):
+    def __init__(self, nf, ng):
+        super(head, self).__init__()
+        pad = (0, 1, 1)
+        self.bn3d_1 = nn.BatchNorm3d(nf, eps=1e-3, momentum=1e-3)
+        self.conv3d_1 = nn.Conv3d(nf, nf, (1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.conv3d_1.apply(initialize_weights)
+        self.bn3d_2 = nn.BatchNorm3d(nf, eps=1e-3, momentum=1e-3)
+        self.conv3d_2 = nn.Conv3d(nf, ng, (1, 3, 3), stride=(1, 1, 1), padding=pad)
+        self.conv3d_2.apply(initialize_weights)
+        self.bn3d_3 = nn.BatchNorm3d(nf + ng, eps=1e-3, momentum=1e-3)
+        self.conv3d_3 = nn.Conv3d(nf + ng, nf + ng, (1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.conv3d_3.apply(initialize_weights)
+        self.bn3d_4 = nn.BatchNorm3d(nf + ng, eps=1e-3)
+        self.conv3d_4 = nn.Conv3d(nf + ng, ng, (1, 3, 3), stride=(1, 1, 1), padding=pad)
+        self.conv3d_4.apply(initialize_weights)
+        self.bn3d_5 = nn.BatchNorm3d(nf + 2 * ng, eps=1e-3, momentum=1e-3)
+        self.conv3d_5 = nn.Conv3d(nf + 2 * ng, nf + 2 * ng, (1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.conv3d_5.apply(initialize_weights)
+        self.bn3d_6 = nn.BatchNorm3d(nf + 2 * ng, eps=1e-3, momentum=1e-3)
+        self.conv3d_6 = nn.Conv3d(nf + 2 * ng, ng, (1, 3, 3), stride=(1, 1, 1), padding=pad)
+        self.conv3d_6.apply(initialize_weights)
+
+    def forward(self, x):
+        x1 = self.conv3d_1(F.relu(self.bn3d_1(x)))
+        x1 = self.conv3d_2(F.relu(self.bn3d_2(x1)))
+        x1 = torch.cat((x, x1), 1)
+
+        x2 = self.conv3d_3(F.relu(self.bn3d_3(x1)))
+        x2 = self.conv3d_4(F.relu(self.bn3d_4(x2)))
+        x2 = torch.cat((x1, x2), 1)
+
+        x3 = self.conv3d_5(F.relu(self.bn3d_5(x2)))
+        x3 = self.conv3d_6(F.relu(self.bn3d_6(x3)))
+        x3 = torch.cat((x2, x3), 1)
+        return x3
+
+
+class middle(nn.Module):
+    def __init__(self, nf, ng):
+        super(middle, self).__init__()
+        pad = (0, 1, 1)
+        self.bn3d_1 = nn.BatchNorm3d(nf, eps=1e-3, momentum=1e-3)
+        self.conv3d_1 = nn.Conv3d(nf, nf, (1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.conv3d_1.apply(initialize_weights)
+        self.bn3d_2 = nn.BatchNorm3d(nf, eps=1e-3, momentum=1e-3)
+        self.conv3d_2 = nn.Conv3d(nf, ng, (1, 3, 3), stride=(1, 1, 1), padding=pad)
+        self.conv3d_2.apply(initialize_weights)
+        self.bn3d_3 = nn.BatchNorm3d(nf + ng, eps=1e-3, momentum=1e-3)
+        self.conv3d_3 = nn.Conv3d(nf + ng, nf + ng, (1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.conv3d_3.apply(initialize_weights)
+        self.bn3d_4 = nn.BatchNorm3d(nf + ng, eps=1e-3)
+        self.conv3d_4 = nn.Conv3d(nf + ng, ng, (1, 3, 3), stride=(1, 1, 1), padding=pad)
+        self.conv3d_4.apply(initialize_weights)
+        self.bn3d_5 = nn.BatchNorm3d(nf + 2 * ng, eps=1e-3, momentum=1e-3)
+        self.conv3d_5 = nn.Conv3d(nf + 2 * ng, nf + 2 * ng, (1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.conv3d_5.apply(initialize_weights)
+        self.bn3d_6 = nn.BatchNorm3d(nf + 2 * ng, eps=1e-3, momentum=1e-3)
+        self.conv3d_6 = nn.Conv3d(nf + 2 * ng, ng, (1, 3, 3), stride=(1, 1, 1), padding=pad)
+        self.conv3d_6.apply(initialize_weights)
+
+    def forward(self, x):
+        x1 = self.conv3d_1(F.relu(self.bn3d_1(x)))
+        x1 = self.conv3d_2(F.relu(self.bn3d_2(x1)))
+        x1 = torch.cat((x, x1), 1)
+
+        x2 = self.conv3d_3(F.relu(self.bn3d_3(x1)))
+        x2 = self.conv3d_4(F.relu(self.bn3d_4(x2)))
+        x2 = torch.cat((x1, x2), 1)
+
+        x3 = self.conv3d_5(F.relu(self.bn3d_5(x2)))
+        x3 = self.conv3d_6(F.relu(self.bn3d_6(x3)))
+        x3 = torch.cat((x2, x3), 1)
+        return x3
+
+
+class last(nn.Module):
+    def __init__(self, nf, ng):
+        super(last, self).__init__()
+        pad = (0, 1, 1)
+        self.bn3d_1 = nn.BatchNorm3d(nf, eps=1e-3, momentum=1e-3)
+        self.conv3d_1 = nn.Conv3d(nf, nf, (1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.conv3d_1.apply(initialize_weights)
+        self.bn3d_2 = nn.BatchNorm3d(nf, eps=1e-3, momentum=1e-3)
+        self.conv3d_2 = nn.Conv3d(nf, ng, (1, 3, 3), stride=(1, 1, 1), padding=pad)
+        self.conv3d_2.apply(initialize_weights)
+        self.bn3d_3 = nn.BatchNorm3d(nf + ng, eps=1e-3, momentum=1e-3)
+        self.conv3d_3 = nn.Conv3d(nf + ng, nf + ng, (1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.conv3d_3.apply(initialize_weights)
+        self.bn3d_4 = nn.BatchNorm3d(nf + ng, eps=1e-3)
+        self.conv3d_4 = nn.Conv3d(nf + ng, ng, (1, 3, 3), stride=(1, 1, 1), padding=pad)
+        self.conv3d_4.apply(initialize_weights)
+        self.bn3d_5 = nn.BatchNorm3d(nf + 2 * ng, eps=1e-3, momentum=1e-3)
+        self.conv3d_5 = nn.Conv3d(nf + 2 * ng, nf + 2 * ng, (1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.conv3d_5.apply(initialize_weights)
+        self.bn3d_6 = nn.BatchNorm3d(nf + 2 * ng, eps=1e-3, momentum=1e-3)
+        self.conv3d_6 = nn.Conv3d(nf + 2 * ng, ng + 1, (1, 3, 3), stride=(1, 1, 1), padding=pad)
+        self.conv3d_6.apply(initialize_weights)
+        self.ng = ng
+
+    def forward(self, x):
+        x1 = self.conv3d_1(F.relu(self.bn3d_1(x)))
+        x1 = self.conv3d_2(F.relu(self.bn3d_2(x1)))
+        x1 = torch.cat((x, x1), 1)
+
+        x2 = self.conv3d_3(F.relu(self.bn3d_3(x1)))
+        x2 = self.conv3d_4(F.relu(self.bn3d_4(x2)))
+        x2 = torch.cat((x1, x2), 1)
+
+        x3 = self.conv3d_5(F.relu(self.bn3d_5(x2)))
+        x3 = self.conv3d_6(F.relu(self.bn3d_6(x3)))
+        x_att = x3[:, self.ng:self.ng + 1, :, :, :]
+        x_att = F.softmax(x_att, dim=2)
+        x_feat = x3[:, :self.ng, :, :, :]
+        x3 = torch.mul(x_att, x_feat)
+        x3 = torch.cat((x2, x3), 1)
+        return x3, x_att
+
+
+class TGA(nn.Module):
+    def __init__(self, scale):
+        super(TGA, self).__init__()
+        self.scale = scale
+        nf = 64
+        ng = 16
+        pad = (0, 1, 1)
+        self.conv3d_1 = nn.Conv3d(3, nf, (1, 3, 3), stride=(1, 1, 1), padding=pad)
+        self.conv3d_1.apply(initialize_weights)
+        self.bn3d_1 = nn.BatchNorm3d(nf, eps=1e-3, momentum=1e-3)
+        self.conv3d_2 = nn.Conv3d(nf, nf, (1, 3, 3), stride=(1, 1, 1), padding=pad)
+        self.conv3d_2.apply(initialize_weights)
+        self.bn3d_2 = nn.BatchNorm3d(nf, eps=1e-3, momentum=1e-3)
+        self.conv3d_2_1 = nn.Conv3d(nf, nf, (1, 3, 3), stride=(1, 1, 1), padding=pad)
+        self.conv3d_2_1.apply(initialize_weights)
+        self.bn3d_2_1 = nn.BatchNorm3d(nf, eps=1e-3, momentum=1e-3)
+        self.conv3d_2_2 = nn.Conv3d(nf, nf, (3, 3, 3), stride=(3, 1, 1), padding=pad)
+        self.conv3d_2_2.apply(initialize_weights)
+        self.head = head(nf, ng)
+        self.middle_1 = middle(nf + 3 * ng, ng)
+        self.middle_2 = middle(nf + 6 * ng, ng)
+        self.middle_3 = middle(nf + 9 * ng, ng)
+        self.middle_4 = middle(nf + 12 * ng, ng)
+        self.last = last(nf + 15 * ng, ng)
+        self.fusion_head = Fusion_head(nf + 18 * ng, ng)
+        self.Fusion_last = Fusion_last(nf + 20 * ng, ng)
+        self.bn3d_2_2 = nn.BatchNorm3d(nf + 22 * ng, eps=1e-3, momentum=1e-3)
+        self.compress = nn.Conv3d(nf + 22 * ng, nf, (1, 3, 3), stride=(1, 1, 1), padding=(0, 1, 1))
+        self.compress.apply(initialize_weights)
+        self.middle_6 = middle(nf, ng)
+        self.middle_7 = middle(nf + 3 * ng, ng)
+        self.middle_8 = middle(nf + 6 * ng, ng)
+        self.middle_9 = middle(nf + 9 * ng, ng)
+        self.middle_10 = middle(nf + 12 * ng, ng)
+        self.middle_11 = middle(nf + 15 * ng, ng)
+        self.middle_12 = middle(nf + 18 * ng, ng)
+        self.bn3d_3 = nn.BatchNorm3d(nf + 21 * ng, eps=1e-3, momentum=1e-3)
+        self.conv3d_3 = nn.Conv3d(nf + 21 * ng, 256, (1, 3, 3), stride=(1, 1, 1), padding=(0, 1, 1))
+        self.conv3d_3.apply(initialize_weights)
+        self.conv3d_r1 = nn.Conv3d(256, 256, (1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.conv3d_r1.apply(initialize_weights)
+        self.conv3d_r2 = nn.Conv3d(256, 128 * 4, (1, 3, 3), stride=(1, 1, 1), padding=(0, 1, 1))
+        self.conv3d_r2.apply(initialize_weights)
+
+        self.conv3d_r4 = nn.Conv3d(128, 128, (1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.conv3d_r4.apply(initialize_weights)
+
+        self.conv3d_r3 = nn.Conv3d(128, scale * 3, (1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.conv3d_r3.apply(initialize_weights)
+
+
+    def forward(self, x):
+        B, C, T, H, W = x.shape
+        x = F.relu(self.bn3d_1(self.conv3d_1(x)))
+        x = F.relu(self.bn3d_2(self.conv3d_2(x)))
+        x = F.relu(self.bn3d_2_1(self.conv3d_2_1(x)))
+        x = self.conv3d_2_2(x)
+        x = self.head(x)
+        x = self.middle_1(x)
+        x = self.middle_2(x)
+        x = self.middle_3(x)
+        x = self.middle_4(x)
+        x, x_att = self.last(x)
+        x = self.fusion_head(x)
+        x = self.Fusion_last(x)
+        x = self.compress(F.relu(self.bn3d_2_2(x)))
+        x.squeeze_(2)
+
+        return x
+
+
+def initialize_weights(net_l, scale=0.1):
+    if not isinstance(net_l, list):
+        net_l = [net_l]
+    for net in net_l:
+        for m in net.modules():
+            if isinstance(m, nn.Conv3d):
+                init.kaiming_normal_(m.weight, a=0, mode='fan_in')
+                m.weight.data *= scale
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                init.kaiming_normal_(m.weight, a=0, mode='fan_in')
+                m.weight.data *= scale
+                if m.bias is not None:
+                    m.bias.data.zero_()
+
+
+
+
+
+
