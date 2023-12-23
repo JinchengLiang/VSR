@@ -12,30 +12,20 @@ We write IconVSR+ model in [iconvsr_net.py](https://github.com/JinchengLiang/VSR
 ### Train
 <details>
   <summary>Train Instructions</summary>
-You can use the following commands to train a model with cpu or single/multiple GPUs.
-```
-# cpu train
-CUDA_VISIBLE_DEVICES=-1 python tools/train.py configs/iconvsr/iconvsr_2xb4_reds4.py
-
-# single-gpu train
-python tools/train.py configs/iconvsr/iconvsr_2xb4_reds4.py
-
-# multi-gpu train
-./tools/dist_train.sh configs/iconvsr/iconvsr_2xb4_reds4.py 8
-```
+  You can use the following commands to train a model with cpu or single/multiple GPUs.
+  ```
+  # cpu train
+  CUDA_VISIBLE_DEVICES=-1 python tools/train.py configs/iconvsr/iconvsr_2xb4_reds4.py
+  
+  # single-gpu train
+  python tools/train.py configs/iconvsr/iconvsr_2xb4_reds4.py
+  
+  # multi-gpu train
+  ./tools/dist_train.sh configs/iconvsr/iconvsr_2xb4_reds4.py 8
+  ```
   
 </details>
-You can use the following commands to train a model with cpu or single/multiple GPUs.
-```
-# cpu train
-CUDA_VISIBLE_DEVICES=-1 python tools/train.py configs/iconvsr/iconvsr_2xb4_reds4.py
 
-# single-gpu train
-python tools/train.py configs/iconvsr/iconvsr_2xb4_reds4.py
-
-# multi-gpu train
-./tools/dist_train.sh configs/iconvsr/iconvsr_2xb4_reds4.py 8
-```
 ### Test
 You can use the following commands to test a model with cpu or single/multiple GPUs.
 ```
