@@ -1,5 +1,17 @@
 # VSR
 
+## Installation
+All related information is available at ['mmgic/README.md'](https://github.com/JinchengLiang/VSR/blob/main/mmagic/README.md).
+
+## Dadasets
+All datasets are in ['toos/dataset_converters']([https://github.com/JinchengLiang/VSR/tree/main/tools](https://github.com/JinchengLiang/VSR/tree/main/tools/dataset_converters)).
+
+## Train
+
+## Test
+
+## Outputs
+
 ## Citation
 ```
 @misc{mmagic2023,
