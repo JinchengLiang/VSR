@@ -14,7 +14,8 @@ All analysis tools are in [tools/analysis_tools](https://github.com/JinchengLian
 All outputs are saved in [outputs](https://github.com/JinchengLiang/VSR/tree/main/outputs).
 
 ## Quick Start
-We write IconVSR+ model in [iconvsr_net.py](https://github.com/JinchengLiang/VSR/tree/main/mmagic/models/editors/iconvsr) to avoid customer model registry problem.
+We write IconVSR+ model in [iconvsr_net.py](https://github.com/JinchengLiang/VSR/tree/main/mmagic/models/editors/iconvsr) to avoid customer model registry problem.  
+To use the wavelet-based loss, modify the `type` of `pixel_loss` in the config to `WCPatchLoss`.
 
 ### Train
 You can use the following commands to train a model with cpu or single/multiple GPUs.
