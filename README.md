@@ -32,7 +32,7 @@ python tools/train.py configs/iconvsr/iconvsr_2xb4_reds4.py
 ### Test
 You can use the following commands to test a model with cpu or single/multiple GPUs.
 
-Download [best_PSNR.pth](https://drive.google.com/file/d/1JXyJEICXPT2AGG-F8PsS7g0bTkq2PO4v/view?usp=drive_link) first, and then save this path in directory 'work_dirs/iconvsr_2xb4_reds4'.
+Download [best_PSNR.pth](https://drive.google.com/file/d/1JXyJEICXPT2AGG-F8PsS7g0bTkq2PO4v/view?usp=drive_link) first, and then save this path in directory work_dirs/iconvsr_2xb4_reds4.
 ```
 # cpu test
 CUDA_VISIBLE_DEVICES=-1 python tools/test.py configs/iconvsr/iconvsr_2xb4_reds4.py work_dirs/iconvsr_2xb4_reds4/best_PSNR_iter_29000.pth
