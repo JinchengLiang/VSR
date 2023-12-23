@@ -1,10 +1,14 @@
 # VSR
 
-## Installation
+## Files Location
+### Installation
 All related information is available at [mmgic/README.md](https://github.com/JinchengLiang/VSR/blob/main/mmagic/README.md).
 
-## Dadasets
+### Dadasets
 All datasets are in [toos/dataset_converters](https://github.com/JinchengLiang/VSR/tree/main/tools/dataset_converters).
+
+### Analysis
+All analysis tools are in [tools/analysis_tools](https://github.com/JinchengLiang/VSR/tree/Shaomin/tools/analysis_tools).
 
 ## Quick Start
 We write IconVSR+ model in [iconvsr_net.py](https://github.com/JinchengLiang/VSR/tree/main/mmagic/models/editors/iconvsr) to avoid customer model registry problem.
